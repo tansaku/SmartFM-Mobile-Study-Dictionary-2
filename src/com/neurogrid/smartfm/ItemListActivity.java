@@ -1,8 +1,7 @@
 package com.neurogrid.smartfm;
 
-import java.util.Vector;
-
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import android.app.Activity;
@@ -30,7 +29,7 @@ import android.widget.TextView;
 
 import com.nullwire.trace.ExceptionHandler;
 
-import fm.smart.Node;
+import fm.smart.Lookup;
 
 public class ItemListActivity extends ListActivity {
 
@@ -160,10 +159,15 @@ public class ItemListActivity extends ListActivity {
 		 * startActivity(intent);
 		 */
 		// TODO got null pointer here once - could be more careful grabbing this
-		//loadItem(this, ItemListActivity.items.elementAt(position).atts
-		//		.get("id").toString());
+		try {
+			loadItem(this, ItemListActivity.items.getJSONObject(position)
+					.getString("id"));
+		} catch (JSONException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
 	}
-/*
+
 	public static void loadItem(Activity activity, final String item_id) {
 		ProgressDialog myProgressDialog = new ProgressDialog(activity);
 		myProgressDialog.setTitle("Please Wait ...");
@@ -173,7 +177,7 @@ public class ItemListActivity extends ListActivity {
 
 		final ItemDownload item_download = new ItemDownload(activity,
 				myProgressDialog) {
-			public Vector<Node> downloadCall(SmartFmLookup lookup) {
+			public JSONObject downloadCall(Lookup lookup) {
 				return lookup.item(item_id);
 			}
 		};
@@ -192,7 +196,7 @@ public class ItemListActivity extends ListActivity {
 		myProgressDialog.show();
 		item_download.start();
 	}
-	*/
+	
 
 	private static void playSound(int position, Context context) {
 		String sound_url = null;
@@ -310,7 +314,7 @@ public class ItemListActivity extends ListActivity {
 				cue = items.getJSONObject(position).getJSONObject("cue");
 				content = cue.getJSONObject("content");
 				cue_text = content.getString("text");
-
+				//cue_text += items.getJSONObject(position).getString("id");
 				if (content.has("character")) {
 					character = content.getString("character");
 					if (!character.equals("")) {
