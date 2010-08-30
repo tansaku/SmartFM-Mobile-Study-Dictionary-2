@@ -16,40 +16,68 @@
 
 package com.neurogrid.smartfm;
 
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.HashMap;
 import java.util.Vector;
 
+import org.apache.commons.codec.binary.Base64;
+import org.apache.http.Header;
+import org.apache.http.HttpEntity;
+import org.apache.http.HttpResponse;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.entity.mime.MultipartEntity;
+import org.apache.http.entity.mime.content.FileBody;
+import org.apache.http.entity.mime.content.StringBody;
+import org.apache.http.impl.client.DefaultHttpClient;
 import org.json.JSONException;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.ListActivity;
+import android.app.ProgressDialog;
+import android.content.ContentResolver;
 import android.content.Context;
+import android.content.DialogInterface;
+import android.content.DialogInterface.OnCancelListener;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.net.Uri;
 import android.os.Bundle;
+import android.provider.MediaStore.Images.Media;
 import android.text.Html;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
+import android.view.View.OnClickListener;
 import android.view.ViewGroup;
 import android.view.Window;
-import android.view.View.OnClickListener;
 import android.widget.BaseAdapter;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.neurogrid.smartfm.results.AddImageResult;
+import com.neurogrid.smartfm.results.AddItemResult;
+import com.neurogrid.smartfm.results.AddSentenceResult;
 import com.nullwire.trace.ExceptionHandler;
 
 import fm.smart.Item;
+import fm.smart.Result;
 import fm.smart.Sentence;
 import fm.smart.Utils;
 
 /**
- * Okay, so seems like I should have been customising a listActivity rather than
+ * Okay, so seems like I should have been customizing a listActivity rather than
  * drawing things as part of a table:
  * http://developer.android.com/reference/android/app/ListActivity.html I can
  * specify my own row layouts, and the surround the list itself with other stuff
@@ -57,15 +85,14 @@ import fm.smart.Utils;
  */
 public class ItemActivity extends ListActivity {
 	private static final int CREATE_EXAMPLE_ID = Menu.FIRST;
-	private static final int CREATE_SOUND_ID = Menu.FIRST + 1;
-	private static final int ADD_TO_LIST_ID = Menu.FIRST + 2;
+	private static final int ADD_TO_GOAL_ID = Menu.FIRST + 1;
 	private static final int SELECT_IMAGE = 0;
 
 	public static Item item;
 	// TODO removing user creation stuff temporarily
-	//public static AddItemResult add_item_result = null;
-	//public static AddImageResult add_image_result = null;
-	//protected static AddSentenceResult add_sentence_list_result;
+	public static AddItemResult add_item_result = null;
+	public static AddImageResult add_image_result = null;
+	protected static AddSentenceResult add_sentence_goal_result;
 	private static boolean shown_toast = false;
 
 	@Override
@@ -78,24 +105,15 @@ public class ItemActivity extends ListActivity {
 
 		setContentView(R.layout.item);
 
-		/*
-		 * ImageView author_icon = (ImageView)
-		 * findViewById(R.id.item_author_icon); if (item.author_image != null){
-		 * author_icon.setImageBitmap(item.author_image); }
-		 */
-
 		TextView cue_and_pronunciation = (TextView) findViewById(R.id.cue_and_pronunciation);
-		cue_and_pronunciation.setText(item.cue_text);  // TODO handle case where item is null?
+		cue_and_pronunciation.setText(item.cue_text); // TODO handle case where
+														// item is null?
 		TextView cue_part_of_speech = (TextView) findViewById(R.id.cue_part_of_speech);
 		if (!TextUtils.equals(item.part_of_speech, "None")) {
 			cue_part_of_speech.setText(item.part_of_speech);
 		} else {
 			cue_part_of_speech.setVisibility(View.INVISIBLE);
 		}
-		/*
-		 * TextView author = (TextView) findViewById(R.id.item_author);
-		 * author.setText(item.author_name);
-		 */
 
 		TextView response_and_pronunciation = (TextView) findViewById(R.id.response_and_pronunciation);
 		response_and_pronunciation.setText(item.children[0][0]);
@@ -118,8 +136,9 @@ public class ItemActivity extends ListActivity {
 		ImageView response_sound = (ImageView) findViewById(R.id.response_sound);
 		try {
 			setSound(response_sound, item.response_sound_url, this,
-					R.id.response_sound, (String) item.item_node.getString("id"),
-					item.response_node.getJSONObject("contents").getString("text"));
+					R.id.response_sound,
+					(String) item.item_node.getString("id"), item.response_node
+							.getJSONObject("content").getString("text"));
 		} catch (JSONException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
@@ -127,7 +146,7 @@ public class ItemActivity extends ListActivity {
 		EfficientAdapter adapter = new EfficientAdapter(ItemActivity.this,
 				item.sentence_vector);
 		setListAdapter(adapter);
-		if (adapter.getCount() == 0 && !ItemActivity.shown_toast ) {
+		if (adapter.getCount() == 0 && !ItemActivity.shown_toast) {
 			Toast t = Toast.makeText(this,
 					"Know a good example? Click the menu button to add one",
 					250);
@@ -144,8 +163,8 @@ public class ItemActivity extends ListActivity {
 		if (!TextUtils.isEmpty(sound_url)) {
 			OnClickListener sound_listener = new OnClickListener() {
 				public void onClick(View v) {// TODO removed temporarily
-					//Main.playSound(sound_url, ItemListActivity.mMediaPlayer,
-						//	context);
+					MediaUtility.playSound(sound_url,
+							ItemListActivity.mMediaPlayer, context);
 				}
 			};
 			sound_icon.setOnClickListener(sound_listener);
@@ -154,22 +173,22 @@ public class ItemActivity extends ListActivity {
 					|| type_id == R.id.translation_sound) {
 				sound_icon.setVisibility(View.INVISIBLE);
 			} else {
-				sound_icon.setImageBitmap(BitmapFactory.decodeResource(context
-						.getResources(), R.drawable.inactive_sound_add));
+				sound_icon.setImageBitmap(BitmapFactory.decodeResource(
+						context.getResources(), R.drawable.inactive_sound_add));
 
 				OnClickListener listener = new OnClickListener() {
 					public void onClick(View v) {
 						// TODO removed temporarily
 						Intent intent = new Intent(Intent.ACTION_VIEW);
-//						intent.setClassName(context, CreateSoundActivity.class
-//								.getName());
-//						Utils.putExtra(intent, "item_id",
-//								(String) item.item_node.atts.get("id"));
-//						Utils.putExtra(intent, "to_record", to_record);
-//						Utils.putExtra(intent, "id", artifact_id);
-//						Utils.putExtra(intent, "sound_type", Integer
-//								.toString(type_id));
-//						context.startActivity(intent);
+						intent.setClassName(context,
+								CreateSoundActivity.class.getName());
+						AndroidUtils.putExtra(intent, "item_id",
+								(String) item.getId());
+						AndroidUtils.putExtra(intent, "to_record", to_record);
+						AndroidUtils.putExtra(intent, "id", artifact_id);
+						AndroidUtils.putExtra(intent, "sound_type",
+								Integer.toString(type_id));
+						context.startActivity(intent);
 
 					}
 				};
@@ -183,561 +202,413 @@ public class ItemActivity extends ListActivity {
 		super.onCreateOptionsMenu(menu);
 		menu.add(0, CREATE_EXAMPLE_ID, 0, R.string.menu_create_example)
 				.setIcon(android.R.drawable.ic_menu_add);
-		// remove until we have it working ...
-		// menu.add(0, CREATE_SOUND_ID, 0, R.string.menu_create_sound).setIcon(
-		// R.drawable.microphone);
 
-		menu.add(0, ADD_TO_LIST_ID, 0, R.string.menu_add_to_list).setIcon(
+		menu.add(0, ADD_TO_GOAL_ID, 0, R.string.menu_add_to_goal).setIcon(
 				android.R.drawable.ic_menu_add);
 
 		return true;
 	}
 
-	// TODO Removed temporarily
-//	@Override
-//	public boolean onOptionsItemSelected(MenuItem menu_item) {
-//		switch (menu_item.getItemId()) {
-//		case CREATE_EXAMPLE_ID: {
-//			Intent intent = new Intent(Intent.ACTION_VIEW);
-//			intent.setClassName(this, CreateExampleActivity.class.getName());
-//			Utils.putExtra(intent, "item_id", (String) item.item_node.atts
-//					.get("id"));
-//			Utils.putExtra(intent, "cue", item.cue_text);
-//			Utils.putExtra(intent, "example_language", Utils.INV_LANGUAGE_MAP
-//					.get(item.cue_node.atts.get("language").toString()));
-//			Utils.putExtra(intent, "translation_language",
-//					Utils.INV_LANGUAGE_MAP.get(item.response_node.atts.get(
-//							"language").toString()));
-//			startActivity(intent);
-//			break;
-//		}
-//		case CREATE_SOUND_ID: {
-//			Intent intent = new Intent(Intent.ACTION_VIEW);
-//			intent.setClassName(this, CreateSoundActivity.class.getName());
-//			Utils.putExtra(intent, "item_id", (String) item.item_node.atts
-//					.get("id"));
-//			startActivity(intent);
-//			break;
-//		}
-//		case ADD_TO_LIST_ID: {
-//			// TODO inserting login request here more complicated in as much as
-//			// this is not an activity we can simply return to with parameters
-//			// although we could jump to this from switch in onCreate
-//			// of course there's probably a swish URI way to call, but may take
-//			// time to get it just right ...
-//			// or should just bring them back and open menu bar ...
-//			if (Main.isNotLoggedIn(this)) {
-//				Intent intent = new Intent(Intent.ACTION_VIEW);
-//				intent.setClassName(this, LoginActivity.class.getName());
-//				intent.setFlags(Intent.FLAG_ACTIVITY_NO_HISTORY); // avoid
-//				// navigation
-//				// back to
-//				// this?
-//				LoginActivity.return_to = ItemActivity.class.getName();
-//				LoginActivity.params = new HashMap<String, String>();
-//				LoginActivity.params.put("item_id",
-//						(String) item.item_node.atts.get("id"));
-//				startActivity(intent);
-//			} else {
-//				addToList((String) item.item_node.atts.get("id"));
-//			}
-//
-//			break;
-//		}
-//		}
-//		return super.onOptionsItemSelected(menu_item);
-//	}
+	@Override
+	public boolean onOptionsItemSelected(MenuItem menu_item) {
+		switch (menu_item.getItemId()) {
+		case CREATE_EXAMPLE_ID: {
+			Intent intent = new Intent(Intent.ACTION_VIEW);
+			intent.setClassName(this, CreateExampleActivity.class.getName());
+			AndroidUtils.putExtra(intent, "item_id", (String) item.getId());
+			AndroidUtils.putExtra(intent, "cue", item.cue_text);
+			AndroidUtils.putExtra(intent, "example_language",
+					Utils.INV_LANGUAGE_MAP.get(item.getCueLanguage()));
+			AndroidUtils.putExtra(intent, "translation_language",
+					Utils.INV_LANGUAGE_MAP.get(item.getResponseLanguage()));
+			startActivity(intent);
+			break;
+		}
+		case ADD_TO_GOAL_ID: {
+			// TODO inserting login request here more complicated in as much as
+			// this is not an activity we can simply return to with parameters
+			// although we could jump to this from switch in onCreate
+			// of course there's probably a swish URI way to call, but may take
+			// time to get it just right ...
+			// or should just bring them back and open menu bar ...
+			if (LoginActivity.isNotLoggedIn(this)) {
+				Intent intent = new Intent(Intent.ACTION_VIEW);
+				intent.setClassName(this, LoginActivity.class.getName());
+				intent.setFlags(Intent.FLAG_ACTIVITY_NO_HISTORY); // avoid
+				// navigation
+				// back to
+				// this?
+				LoginActivity.return_to = ItemActivity.class.getName();
+				LoginActivity.params = new HashMap<String, String>();
+				try {
+					LoginActivity.params.put("item_id",
+							(String) item.item_node.getString("id"));
+				} catch (JSONException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+				startActivity(intent);
+			} else {
+				try {
+					addToList((String) item.item_node.getString("id"));
+				} catch (JSONException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			}
 
-//	public void addToList(final String item_id) {
-//		final ProgressDialog myOtherProgressDialog = new ProgressDialog(this);
-//		myOtherProgressDialog.setTitle("Please Wait ...");
-//		myOtherProgressDialog.setMessage("Adding item to study list ...");
-//		myOtherProgressDialog.setIndeterminate(true);
-//		myOtherProgressDialog.setCancelable(true);
-//
-//		final Thread add = new Thread() {
-//			public void run() {
-//				ItemActivity.add_item_result = addItemToList(
-//						Main.default_study_list_id, item_id, ItemActivity.this);
-//
-//				myOtherProgressDialog.dismiss();
-//				ItemActivity.this.runOnUiThread(new Thread() {
-//					public void run() {
-//						final AlertDialog dialog = new AlertDialog.Builder(
-//								ItemActivity.this).create();
-//						dialog
-//								.setTitle(ItemActivity.add_item_result
-//										.getTitle());
-//						dialog.setMessage(ItemActivity.add_item_result
-//								.getMessage());
-//						ItemActivity.add_item_result = null;
-//						dialog.setButton("OK",
-//								new DialogInterface.OnClickListener() {
-//									public void onClick(DialogInterface dialog,
-//											int which) {
-//									}
-//								});
-//
-//						dialog.show();
-//					}
-//				});
-//
-//			}
-//		};
-//		myOtherProgressDialog.setButton("Cancel",
-//				new DialogInterface.OnClickListener() {
-//					public void onClick(DialogInterface dialog, int which) {
-//						add.interrupt();
-//					}
-//				});
-//		OnCancelListener ocl = new OnCancelListener() {
-//			public void onCancel(DialogInterface arg0) {
-//				add.interrupt();
-//			}
-//		};
-//		myOtherProgressDialog.setOnCancelListener(ocl);
-//		closeMenu();
-//		myOtherProgressDialog.show();
-//		add.start();
-//	}
+			break;
+		}
+		}
+		return super.onOptionsItemSelected(menu_item);
+	}
+
+	public void addToList(final String item_id) {
+		final ProgressDialog myOtherProgressDialog = new ProgressDialog(this);
+		myOtherProgressDialog.setTitle("Please Wait ...");
+		myOtherProgressDialog.setMessage("Adding item to study goal ...");
+		myOtherProgressDialog.setIndeterminate(true);
+		myOtherProgressDialog.setCancelable(true);
+
+		final Thread add = new Thread() {
+			public void run() {
+				ItemActivity.add_item_result = new AddItemResult(
+						Main.lookup.addItemToGoal(Main.transport,
+								Main.default_study_goal_id, item_id, null));
+
+				myOtherProgressDialog.dismiss();
+				ItemActivity.this.runOnUiThread(new Thread() {
+					public void run() {
+						final AlertDialog dialog = new AlertDialog.Builder(
+								ItemActivity.this).create();
+						dialog.setTitle(ItemActivity.add_item_result.getTitle());
+						dialog.setMessage(ItemActivity.add_item_result
+								.getMessage());
+						ItemActivity.add_item_result = null;
+						dialog.setButton("OK",
+								new DialogInterface.OnClickListener() {
+									public void onClick(DialogInterface dialog,
+											int which) {
+									}
+								});
+
+						dialog.show();
+					}
+				});
+
+			}
+		};
+		myOtherProgressDialog.setButton("Cancel",
+				new DialogInterface.OnClickListener() {
+					public void onClick(DialogInterface dialog, int which) {
+						add.interrupt();
+					}
+				});
+		OnCancelListener ocl = new OnCancelListener() {
+			public void onCancel(DialogInterface arg0) {
+				add.interrupt();
+			}
+		};
+		myOtherProgressDialog.setOnCancelListener(ocl);
+		closeMenu();
+		myOtherProgressDialog.show();
+		add.start();
+	}
 
 	public void closeMenu() {
 		this.getWindow().closePanel(Window.FEATURE_OPTIONS_PANEL);
 	}
 
-	// POST /lists/:list_id/items
-	// DELETE /lists/:list_id/items/:id
-//	public static AddItemResult addItemToList(String list_id, String item_id,
-//			Activity activity) {
-//		String http_response = "";
-//		int status_code = 0;
-//		HttpClient client = null;
-//		try {
-//			client = new DefaultHttpClient();
-//			HttpPost post = new HttpPost("http://api.smart.fm/lists/" + list_id
-//					+ "/items");
-//			// Main.consumer.setTokenWithSecret(Main.ACCESS_TOKEN,
-//			// Main.TOKEN_SECRET);
-//			// Main.consumer.sign(post);
-//
-//			String auth = Main.username(activity) + ":"
-//					+ Main.password(activity);
-//			byte[] bytes = auth.getBytes();
-//			post.setHeader("Authorization", "Basic "
-//					+ new String(Base64.encodeBase64(bytes)));
-//
-//			post.setHeader("Content-Type", "application/x-www-form-urlencoded");
-//
-//			post.setHeader("Host", "api.smart.fm");
-//			HttpEntity entity = new StringEntity("id=" + item_id + "&api_key="
-//					+ Main.API_KEY, "UTF-8");
-//			post.setEntity(entity);
-//
-//			Header[] array = post.getAllHeaders();
-//			for (int i = 0; i < array.length; i++) {
-//				Log.d("DEBUG", array[i].toString());
-//			}
-//
-//			Log
-//					.d("AddItemTolist", "executing request "
-//							+ post.getRequestLine());
-//			HttpResponse response = client.execute(post);
-//			status_code = response.getStatusLine().getStatusCode();
-//
-//			HttpEntity resEntity = response.getEntity();
-//
-//			Log.d("AddItemTolist", "----------------------------------------");
-//			Log.d("AddItemTolist", response.getStatusLine().toString());
-//			array = response.getAllHeaders();
-//			for (int i = 0; i < array.length; i++) {
-//				Log.d("AddItemTolist", array[i].toString());
-//			}
-//			if (resEntity != null) {
-//				Log.d("AddItemTolist", "Response content length: "
-//						+ resEntity.getContentLength());
-//				Log.d("AddItemTolist", "Chunked?: " + resEntity.isChunked());
-//			}
-//			long length = response.getEntity().getContentLength();
-//			byte[] response_bytes = new byte[(int) length];
-//			response.getEntity().getContent().read(response_bytes);
-//			Log.d("AddItemTolist", new String(response_bytes));
-//			http_response = new String(response_bytes);
-//			if (resEntity != null) {
-//				resEntity.consumeContent();
-//			}
-//
-//		} catch (IOException e) {
-//			e.printStackTrace();
-//			http_response = e.getMessage();
-//		} catch (Exception e) {
-//			e.printStackTrace();
-//			http_response = e.getMessage();
-//		}
-//
-//		return new AddItemResult(status_code, http_response);
-//	}
+	// @Override
+	public void onActivityResult(final int requestCode, final int resultCode,
+			final Intent data) {
+		super.onActivityResult(requestCode, resultCode, data);
+		// this should be called once image has been chosen by user
+		// using requestCode to pass item id - haven't worked out any other way
+		// to do it
+		// if (requestCode == SELECT_IMAGE)
+		if (resultCode == Activity.RESULT_OK) {
+			// TODO check if user is logged in
+			if (LoginActivity.isNotLoggedIn(this)) {
+				Intent intent = new Intent(Intent.ACTION_VIEW);
+				intent.setClassName(this, LoginActivity.class.getName());
+				intent.setFlags(Intent.FLAG_ACTIVITY_NO_HISTORY);
+				// avoid navigation back to this?
+				LoginActivity.return_to = ItemActivity.class.getName();
+				LoginActivity.params = new HashMap<String, String>();
+				LoginActivity.params.put("item_id", (String) item.getId());
+				startActivity(intent);
+				// TODO in this case forcing the user to rechoose the image
+				// seems a little
+				// rude - should probably auto-submit here ...
+			} else {
+				// Bundle extras = data.getExtras();
+				// String sentence_id = (String) extras.get("sentence_id");
+				final ProgressDialog myOtherProgressDialog = new ProgressDialog(
+						this);
+				myOtherProgressDialog.setTitle("Please Wait ...");
+				myOtherProgressDialog.setMessage("Uploading image ...");
+				myOtherProgressDialog.setIndeterminate(true);
+				myOtherProgressDialog.setCancelable(true);
 
-//	@Override
-//	public void onActivityResult(final int requestCode, final int resultCode,
-//			final Intent data) {
-//		super.onActivityResult(requestCode, resultCode, data);
-//		// this should be called once image has been chosen by user
-//		// using requestCode to pass item id - haven't worked out any other way
-//		// to do it
-//		// if (requestCode == SELECT_IMAGE)
-//		if (resultCode == Activity.RESULT_OK) {
-//			// TODO check if user is logged in
-//			if (Main.isNotLoggedIn(this)) {
-//				Intent intent = new Intent(Intent.ACTION_VIEW);
-//				intent.setClassName(this, LoginActivity.class.getName());
-//				intent.setFlags(Intent.FLAG_ACTIVITY_NO_HISTORY);
-//				// avoid navigation back to this?
-//				LoginActivity.return_to = ItemActivity.class.getName();
-//				LoginActivity.params = new HashMap<String, String>();
-//				LoginActivity.params.put("item_id",
-//						(String) item.item_node.atts.get("id"));
-//				startActivity(intent);
-//				// TODO in this case forcing the user to rechoose the image
-//				// seems a little
-//				// rude - should probably auto-submit here ...
-//			} else {
-//				// Bundle extras = data.getExtras();
-//				// String sentence_id = (String) extras.get("sentence_id");
-//				final ProgressDialog myOtherProgressDialog = new ProgressDialog(
-//						this);
-//				myOtherProgressDialog.setTitle("Please Wait ...");
-//				myOtherProgressDialog.setMessage("Uploading image ...");
-//				myOtherProgressDialog.setIndeterminate(true);
-//				myOtherProgressDialog.setCancelable(true);
-//
-//				final Thread add_image = new Thread() {
-//					public void run() {
-//						// TODO needs to check for interruptibility
-//
-//						String sentence_id = Integer.toString(requestCode);
-//						Uri selectedImage = data.getData();
-//						// Bitmap bitmap = Media.getBitmap(getContentResolver(),
-//						// selectedImage);
-//						// ByteArrayOutputStream bytes = new
-//						// ByteArrayOutputStream();
-//						// bitmap.compress(Bitmap.CompressFormat.JPEG, 40,
-//						// bytes);
-//						// ByteArrayInputStream fileInputStream = new
-//						// ByteArrayInputStream(
-//						// bytes.toByteArray());
-//
-//						// TODO Might have to save to file system first to get
-//						// this
-//						// to work,
-//						// argh!
-//						// could think of it as saving to cache ...
-//
-//						// add image to sentence
-//						FileInputStream is = null;
-//						FileOutputStream os = null;
-//						File file = null;
-//						ContentResolver resolver = getContentResolver();
-//						try {
-//							Bitmap bitmap = Media.getBitmap(
-//									getContentResolver(), selectedImage);
-//							ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-//							bitmap.compress(Bitmap.CompressFormat.JPEG, 40,
-//									bytes);
-//							// ByteArrayInputStream bais = new
-//							// ByteArrayInputStream(bytes.toByteArray());
-//
-//							// FileDescriptor fd =
-//							// resolver.openFileDescriptor(selectedImage,
-//							// "r").getFileDescriptor();
-//							// is = new FileInputStream(fd);
-//
-//							String filename = "test.jpg";
-//							File dir = ItemActivity.this.getDir("images",
-//									MODE_WORLD_READABLE);
-//							file = new File(dir, filename);
-//							os = new FileOutputStream(file);
-//
-//							// while (bais.available() > 0) {
-//							// / os.write(bais.read());
-//							// }
-//							os.write(bytes.toByteArray());
-//
-//							os.close();
-//
-//						} catch (IOException e) {
-//							// TODO Auto-generated catch block
-//							e.printStackTrace();
-//						} finally {
-//							if (os != null) {
-//								try {
-//									os.close();
-//								} catch (IOException e) {
-//								}
-//							}
-//							if (is != null) {
-//								try {
-//									is.close();
-//								} catch (IOException e) {
-//								}
-//							}
-//						}
-//
-//						// File file = new
-//						// File(Uri.decode(selectedImage.toString()));
-//
-//						// ensure item is in users default list
-//
-//						ItemActivity.add_item_result = addItemToList(
-//								Main.default_study_list_id,
-//								(String) item.item_node.atts.get("id"),
-//								ItemActivity.this);
-//						Result result = ItemActivity.add_item_result;
-//
-//						if (ItemActivity.add_item_result.success()
-//								|| ItemActivity.add_item_result.alreadyInList()) {
-//
-//							// ensure sentence is in users default list
-//
-//							ItemActivity.add_sentence_list_result = addSentenceToList(
-//									sentence_id, (String) item.item_node.atts
-//											.get("id"),
-//									Main.default_study_list_id,
-//									ItemActivity.this);
-//							result = ItemActivity.add_sentence_list_result;
-//							if (ItemActivity.add_sentence_list_result.success()) {
-//
-//								String media_entity = "http://test.com/test.jpg";
-//								String author = "tansaku";
-//								String author_url = "http://smart.fm/users/tansaku";
-//								Log.d("DEBUG-IMAGE-URI", selectedImage
-//										.toString());
-//								ItemActivity.add_image_result = addImage(file,
-//										media_entity, author, author_url, "1",
-//										sentence_id,
-//										(String) item.item_node.atts.get("id"),
-//										Main.default_study_list_id);
-//								result = ItemActivity.add_image_result;
-//							}
-//						}
-//						final Result display = result;
-//						myOtherProgressDialog.dismiss();
-//						ItemActivity.this.runOnUiThread(new Thread() {
-//							public void run() {
-//								final AlertDialog dialog = new AlertDialog.Builder(
-//										ItemActivity.this).create();
-//								dialog.setTitle(display.getTitle());
-//								dialog.setMessage(display.getMessage());
-//								dialog.setButton("OK",
-//										new DialogInterface.OnClickListener() {
-//											public void onClick(
-//													DialogInterface dialog,
-//													int which) {
-//												if (ItemActivity.add_image_result != null
-//														&& ItemActivity.add_image_result
-//																.success()) {
-//													ItemListActivity
-//															.loadItem(
-//																	ItemActivity.this,
-//																	item.item_node.atts
-//																			.get(
-//																					"id")
-//																			.toString());
-//												}
-//											}
-//										});
-//
-//								dialog.show();
-//							}
-//						});
-//
-//					}
-//
-//				};
-//
-//				myOtherProgressDialog.setButton("Cancel",
-//						new DialogInterface.OnClickListener() {
-//							public void onClick(DialogInterface dialog,
-//									int which) {
-//								add_image.interrupt();
-//							}
-//						});
-//				OnCancelListener ocl = new OnCancelListener() {
-//					public void onCancel(DialogInterface arg0) {
-//						add_image.interrupt();
-//					}
-//				};
-//				myOtherProgressDialog.setOnCancelListener(ocl);
-//				closeMenu();
-//				myOtherProgressDialog.show();
-//				add_image.start();
-//
-//			}
-//		}
-//	}
+				final Thread add_image = new Thread() {
+					public void run() {
+						// TODO needs to check for interruptibility
 
-	// POST /lists/:list_id/items/:item_id/sentences
-//	public static AddSentenceResult addSentenceToList(String sentence_id,
-//			String item_id, String list_id, Activity activity) {
-//		String http_response = "";
-//		int status_code = 0;
-//		HttpClient client = null;
-//		try {
-//			client = new DefaultHttpClient();
-//			HttpPost post = new HttpPost("http://api.smart.fm/lists/" + list_id
-//					+ "/items/" + item_id + "/sentences");
-//
-//			String auth = Main.username(activity) + ":"
-//					+ Main.password(activity);
-//			byte[] bytes = auth.getBytes();
-//			post.setHeader("Authorization", "Basic "
-//					+ new String(Base64.encodeBase64(bytes)));
-//
-//			post.setHeader("Content-Type", "application/x-www-form-urlencoded");
-//
-//			post.setHeader("Host", "api.smart.fm");
-//			HttpEntity entity = new StringEntity("id=" + sentence_id
-//					+ "&api_key=" + Main.API_KEY, "UTF-8");
-//			post.setEntity(entity);
-//
-//			Header[] array = post.getAllHeaders();
-//			for (int i = 0; i < array.length; i++) {
-//				Log.d("DEBUG", array[i].toString());
-//			}
-//
-//			Log.d("AddSentenceTolist", "executing request "
-//					+ post.getRequestLine());
-//			HttpResponse response = client.execute(post);
-//			status_code = response.getStatusLine().getStatusCode();
-//
-//			HttpEntity resEntity = response.getEntity();
-//
-//			Log.d("AddSentenceTolist",
-//					"----------------------------------------");
-//			Log.d("AddSentenceTolist", response.getStatusLine().toString());
-//			array = response.getAllHeaders();
-//			for (int i = 0; i < array.length; i++) {
-//				Log.d("AddSentenceTolist", array[i].toString());
-//			}
-//			if (resEntity != null) {
-//				Log.d("AddSentenceTolist", "Response content length: "
-//						+ resEntity.getContentLength());
-//				Log
-//						.d("AddSentenceTolist", "Chunked?: "
-//								+ resEntity.isChunked());
-//			}
-//			long length = response.getEntity().getContentLength();
-//			byte[] response_bytes = new byte[(int) length];
-//			response.getEntity().getContent().read(response_bytes);
-//			Log.d("AddSentenceTolist", new String(response_bytes));
-//			http_response = new String(response_bytes);
-//			if (resEntity != null) {
-//				resEntity.consumeContent();
-//			}
-//
-//		} catch (IOException e) {
-//			e.printStackTrace();
-//			http_response = e.getMessage();
-//		} catch (Exception e) {
-//			e.printStackTrace();
-//			http_response = e.getMessage();
-//		}
-//
-//		return new AddSentenceResult(status_code, http_response);
-//
-//	}
+						String sentence_id = Integer.toString(requestCode);
+						Uri selectedImage = data.getData();
+						// Bitmap bitmap = Media.getBitmap(getContentResolver(),
+						// selectedImage);
+						// ByteArrayOutputStream bytes = new
+						// ByteArrayOutputStream();
+						// bitmap.compress(Bitmap.CompressFormat.JPEG, 40,
+						// bytes);
+						// ByteArrayInputStream fileInputStream = new
+						// ByteArrayInputStream(
+						// bytes.toByteArray());
+
+						// TODO Might have to save to file system first to get
+						// this
+						// to work,
+						// argh!
+						// could think of it as saving to cache ...
+
+						// add image to sentence
+						FileInputStream is = null;
+						FileOutputStream os = null;
+						File file = null;
+						ContentResolver resolver = getContentResolver();
+						try {
+							Bitmap bitmap = Media.getBitmap(
+									getContentResolver(), selectedImage);
+							ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+							bitmap.compress(Bitmap.CompressFormat.JPEG, 40,
+									bytes);
+							// ByteArrayInputStream bais = new
+							// ByteArrayInputStream(bytes.toByteArray());
+
+							// FileDescriptor fd =
+							// resolver.openFileDescriptor(selectedImage,
+							// "r").getFileDescriptor();
+							// is = new FileInputStream(fd);
+
+							String filename = "test.jpg";
+							File dir = ItemActivity.this.getDir("images",
+									MODE_WORLD_READABLE);
+							file = new File(dir, filename);
+							os = new FileOutputStream(file);
+
+							// while (bais.available() > 0) {
+							// / os.write(bais.read());
+							// }
+							os.write(bytes.toByteArray());
+
+							os.close();
+
+						} catch (IOException e) {
+							// TODO Auto-generated catch block
+							e.printStackTrace();
+						} finally {
+							if (os != null) {
+								try {
+									os.close();
+								} catch (IOException e) {
+								}
+							}
+							if (is != null) {
+								try {
+									is.close();
+								} catch (IOException e) {
+								}
+							}
+						}
+
+						// File file = new
+						// File(Uri.decode(selectedImage.toString()));
+
+						// ensure item is in users default list
+
+						ItemActivity.add_item_result = new AddItemResult(
+								Main.lookup.addItemToGoal(Main.transport,
+										Main.default_study_goal_id,
+										item.getId(), null));
+
+						Result result = ItemActivity.add_item_result;
+
+						if (ItemActivity.add_item_result.success()
+								|| ItemActivity.add_item_result.alreadyInList()) {
+
+							// ensure sentence is in users default goal
+
+							ItemActivity.add_sentence_goal_result = new AddSentenceResult(
+									Main.lookup.addSentenceToGoal(
+											Main.transport,
+											Main.default_study_goal_id,
+											item.getId(), sentence_id, null));
+
+							result = ItemActivity.add_sentence_goal_result;
+							if (ItemActivity.add_sentence_goal_result.success()) {
+
+								String media_entity = "http://test.com/test.jpg";
+								String author = "tansaku";
+								String author_url = "http://smart.fm/users/tansaku";
+								Log.d("DEBUG-IMAGE-URI",
+										selectedImage.toString());
+								ItemActivity.add_image_result = addImage(file,
+										media_entity, author, author_url, "1",
+										sentence_id, (String) item.getId(),
+										Main.default_study_goal_id);
+								result = ItemActivity.add_image_result;
+							}
+						}
+						final Result display = result;
+						myOtherProgressDialog.dismiss();
+						ItemActivity.this.runOnUiThread(new Thread() {
+							public void run() {
+								final AlertDialog dialog = new AlertDialog.Builder(
+										ItemActivity.this).create();
+								dialog.setTitle(display.getTitle());
+								dialog.setMessage(display.getMessage());
+								dialog.setButton("OK",
+										new DialogInterface.OnClickListener() {
+											public void onClick(
+													DialogInterface dialog,
+													int which) {
+												if (ItemActivity.add_image_result != null
+														&& ItemActivity.add_image_result
+																.success()) {
+													ItemListActivity
+															.loadItem(
+																	ItemActivity.this,
+																	item.getId()
+																			.toString());
+												}
+											}
+										});
+
+								dialog.show();
+							}
+						});
+
+					}
+
+				};
+
+				myOtherProgressDialog.setButton("Cancel",
+						new DialogInterface.OnClickListener() {
+							public void onClick(DialogInterface dialog,
+									int which) {
+								add_image.interrupt();
+							}
+						});
+				OnCancelListener ocl = new OnCancelListener() {
+					public void onCancel(DialogInterface arg0) {
+						add_image.interrupt();
+					}
+				};
+				myOtherProgressDialog.setOnCancelListener(ocl);
+				closeMenu();
+				myOtherProgressDialog.show();
+				add_image.start();
+
+			}
+		}
+	}
 
 	// POST http://api.smart.fm/sentences/:sentence_id/images
-//	public AddImageResult addImage(File file, String media_entity,
-//			String author, String author_url, String attribution_license_id,
-//			String sentence_id, String item_id, String list_id) {
-//		String http_response = "";
-//		int status_code = 0;
-//		HttpClient client = null;
-//		try {
-//			client = new DefaultHttpClient();
-//			HttpPost post = new HttpPost("http://api.smart.fm/lists/" + list_id
-//					+ "/items/" + item_id + "/sentences/" + sentence_id
-//					+ "/images");
-//			// HttpPost post = new HttpPost("http://api.smart.fm/sentences/" +
-//			// sentence_id
-//			// + "/images");
-//
-//			String auth = Main.username(this) + ":" + Main.password(this);
-//			byte[] bytes = auth.getBytes();
-//			post.setHeader("Authorization", "Basic "
-//					+ new String(Base64.encodeBase64(bytes)));
-//
-//			// httppost.setHeader("Content-Type",
-//			// "application/x-www-form-urlencoded");
-//
-//			post.setHeader("Host", "api.smart.fm");
-//
-//			FileBody bin = new FileBody(file, "image/jpeg");
-//			StringBody media_entity_part = new StringBody(media_entity);
-//			StringBody author_part = new StringBody(author);
-//			StringBody author_url_part = new StringBody(author_url);
-//			StringBody attribution_license_id_part = new StringBody(
-//					attribution_license_id);
-//			StringBody sentence_id_part = new StringBody(sentence_id);
-//			StringBody api_key_part = new StringBody(Main.API_KEY);
-//			StringBody item_id_part = new StringBody(item_id);
-//			StringBody list_id_part = new StringBody(list_id);
-//
-//			MultipartEntity reqEntity = new MultipartEntity();
-//			reqEntity.addPart("image[file]", bin);
-//			reqEntity.addPart("media_entity", media_entity_part);
-//			reqEntity.addPart("author", author_part);
-//			reqEntity.addPart("author_url", author_url_part);
-//			reqEntity.addPart("attribution_license_id",
-//					attribution_license_id_part);
-//			reqEntity.addPart("sentence_id", sentence_id_part);
-//			reqEntity.addPart("api_key", api_key_part);
-//			reqEntity.addPart("item_id", item_id_part);
-//			reqEntity.addPart("list_id", list_id_part);
-//
-//			post.setEntity(reqEntity);
-//
-//			Header[] array = post.getAllHeaders();
-//			for (int i = 0; i < array.length; i++) {
-//				Log.d("DEBUG", array[i].toString());
-//			}
-//
-//			Log.d("AddImage", "executing request " + post.getRequestLine());
-//			HttpResponse response = client.execute(post);
-//			HttpEntity resEntity = response.getEntity();
-//			status_code = response.getStatusLine().getStatusCode();
-//
-//			Log.d("AddImage", "----------------------------------------");
-//			Log.d("AddImage", response.getStatusLine().toString());
-//			array = response.getAllHeaders();
-//			for (int i = 0; i < array.length; i++) {
-//				Log.d("AddImage", array[i].toString());
-//			}
-//			if (resEntity != null) {
-//				Log.d("AddImage", "Response content length: "
-//						+ resEntity.getContentLength());
-//				Log.d("AddImage", "Chunked?: " + resEntity.isChunked());
-//			}
-//			long length = response.getEntity().getContentLength();
-//			byte[] response_bytes = new byte[(int) length];
-//			response.getEntity().getContent().read(response_bytes);
-//			Log.d("AddImage", new String(response_bytes));
-//			http_response = new String(response_bytes);
-//			if (resEntity != null) {
-//				resEntity.consumeContent();
-//			}
-//
-//			// HttpEntity entity = response1.getEntity();
-//		} catch (IOException e) {
-//			/* Reset to Default image on any error. */
-//			e.printStackTrace();
-//		} catch (Exception e) {
-//			// TODO Auto-generated catch block
-//			e.printStackTrace();
-//		}
-//
-//		return new AddImageResult(status_code, http_response);
-//	}
+	public AddImageResult addImage(File file, String media_entity,
+			String author, String author_url, String attribution_license_id,
+			String sentence_id, String item_id, String list_id) {
+		String http_response = "";
+		int status_code = 0;
+		HttpClient client = null;
+		try {
+			client = new DefaultHttpClient();
+			HttpPost post = new HttpPost("http://api.smart.fm/lists/" + list_id
+					+ "/items/" + item_id + "/sentences/" + sentence_id
+					+ "/images");
+			// HttpPost post = new HttpPost("http://api.smart.fm/sentences/" +
+			// sentence_id
+			// + "/images");
+
+			String auth = LoginActivity.username(this) + ":"
+					+ LoginActivity.password(this);
+			byte[] bytes = auth.getBytes();
+			post.setHeader("Authorization",
+					"Basic " + new String(Base64.encodeBase64(bytes)));
+
+			// httppost.setHeader("Content-Type",
+			// "application/x-www-form-urlencoded");
+
+			post.setHeader("Host", "api.smart.fm");
+
+			FileBody bin = new FileBody(file, "image/jpeg");
+			StringBody media_entity_part = new StringBody(media_entity);
+			StringBody author_part = new StringBody(author);
+			StringBody author_url_part = new StringBody(author_url);
+			StringBody attribution_license_id_part = new StringBody(
+					attribution_license_id);
+			StringBody sentence_id_part = new StringBody(sentence_id);
+			StringBody api_key_part = new StringBody(Main.API_KEY);
+			StringBody item_id_part = new StringBody(item_id);
+			StringBody list_id_part = new StringBody(list_id);
+
+			MultipartEntity reqEntity = new MultipartEntity();
+			reqEntity.addPart("image[file]", bin);
+			reqEntity.addPart("media_entity", media_entity_part);
+			reqEntity.addPart("author", author_part);
+			reqEntity.addPart("author_url", author_url_part);
+			reqEntity.addPart("attribution_license_id",
+					attribution_license_id_part);
+			reqEntity.addPart("sentence_id", sentence_id_part);
+			reqEntity.addPart("api_key", api_key_part);
+			reqEntity.addPart("item_id", item_id_part);
+			reqEntity.addPart("list_id", list_id_part);
+
+			post.setEntity(reqEntity);
+
+			Header[] array = post.getAllHeaders();
+			for (int i = 0; i < array.length; i++) {
+				Log.d("DEBUG", array[i].toString());
+			}
+
+			Log.d("AddImage", "executing request " + post.getRequestLine());
+			HttpResponse response = client.execute(post);
+			HttpEntity resEntity = response.getEntity();
+			status_code = response.getStatusLine().getStatusCode();
+
+			Log.d("AddImage", "----------------------------------------");
+			Log.d("AddImage", response.getStatusLine().toString());
+			array = response.getAllHeaders();
+			for (int i = 0; i < array.length; i++) {
+				Log.d("AddImage", array[i].toString());
+			}
+			if (resEntity != null) {
+				Log.d("AddImage",
+						"Response content length: "
+								+ resEntity.getContentLength());
+				Log.d("AddImage", "Chunked?: " + resEntity.isChunked());
+			}
+			long length = response.getEntity().getContentLength();
+			byte[] response_bytes = new byte[(int) length];
+			response.getEntity().getContent().read(response_bytes);
+			Log.d("AddImage", new String(response_bytes));
+			http_response = new String(response_bytes);
+			if (resEntity != null) {
+				resEntity.consumeContent();
+			}
+
+			// HttpEntity entity = response1.getEntity();
+		} catch (IOException e) {
+			/* Reset to Default image on any error. */
+			e.printStackTrace();
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+
+		return new AddImageResult(status_code, http_response);
+	}
 
 	public static class EfficientAdapter extends BaseAdapter {
 		private LayoutInflater mInflater;
@@ -834,10 +705,11 @@ public class ItemActivity extends ListActivity {
 			// Bind the data efficiently with the holder.
 			Sentence sentence = (Sentence) getItem(position);
 			holder.sentence.setText(Html.fromHtml(sentence.text));
-			if (sentence.image_url != null) {
-				setImage(holder.sentence_image, Main.getRemoteImage(sentence.image_url, null), position);
-			}
-			
+
+			setImage(holder.sentence_image,
+					MediaUtility.getRemoteImage(sentence.image_url, null),
+					position);
+
 			setSound(holder.sentence_sound, sentence.sound_url, context,
 					R.id.sentence_sound,
 					sentence_vector.elementAt(position).id, sentence.text);
@@ -860,10 +732,10 @@ public class ItemActivity extends ListActivity {
 						Intent intent = new Intent(
 								Intent.ACTION_PICK,
 								android.provider.MediaStore.Images.Media.INTERNAL_CONTENT_URI);
-						Log.d("DEBUG-SENTENCE2", sentence_vector
-								.elementAt(position).id);
-						AndroidUtils.putExtra(intent, "sentence_id", sentence_vector
-								.elementAt(position).id);
+						Log.d("DEBUG-SENTENCE2",
+								sentence_vector.elementAt(position).id);
+						AndroidUtils.putExtra(intent, "sentence_id",
+								sentence_vector.elementAt(position).id);
 						((Activity) context).startActivityForResult(intent,
 								Integer.parseInt(sentence_vector
 										.elementAt(position).id));
@@ -871,8 +743,8 @@ public class ItemActivity extends ListActivity {
 					}
 				};
 				image_view.setOnClickListener(listener);
-				image_view.setImageBitmap(BitmapFactory.decodeResource(context
-						.getResources(), R.drawable.camera));
+				image_view.setImageBitmap(BitmapFactory.decodeResource(
+						context.getResources(), R.drawable.camera));
 				// image_view.setVisibility(View.GONE);
 			}
 		}

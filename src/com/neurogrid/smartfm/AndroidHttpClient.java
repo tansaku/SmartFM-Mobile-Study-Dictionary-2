@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URI;
+import java.net.UnknownHostException;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
@@ -236,41 +237,41 @@ public final class AndroidHttpClient implements HttpClient {
     return delegate.getConnectionManager();
   }
 
-  public HttpResponse execute(HttpUriRequest request) throws IOException {
+  public HttpResponse execute(HttpUriRequest request) throws IOException, UnknownHostException {
     return delegate.execute(request);
   }
 
-  public HttpResponse execute(HttpUriRequest request, HttpContext context) throws IOException {
+  public HttpResponse execute(HttpUriRequest request, HttpContext context) throws IOException, UnknownHostException {
     return delegate.execute(request, context);
   }
 
-  public HttpResponse execute(HttpHost target, HttpRequest request) throws IOException {
+  public HttpResponse execute(HttpHost target, HttpRequest request) throws IOException, UnknownHostException {
     return delegate.execute(target, request);
   }
 
   public HttpResponse execute(HttpHost target, HttpRequest request,
-                              HttpContext context) throws IOException {
+                              HttpContext context) throws IOException, UnknownHostException {
     return delegate.execute(target, request, context);
   }
 
-  public <T> T execute(HttpUriRequest request, ResponseHandler<? extends T> responseHandler) throws IOException {
+  public <T> T execute(HttpUriRequest request, ResponseHandler<? extends T> responseHandler) throws IOException, UnknownHostException {
     return delegate.execute(request, responseHandler);
   }
 
   public <T> T execute(HttpUriRequest request, ResponseHandler<? extends T> responseHandler, HttpContext context)
-      throws IOException {
+      throws IOException, UnknownHostException {
     return delegate.execute(request, responseHandler, context);
   }
 
   public <T> T execute(HttpHost target, HttpRequest request, ResponseHandler<? extends T> responseHandler)
-      throws IOException {
+      throws IOException, UnknownHostException {
     return delegate.execute(target, request, responseHandler);
   }
 
   public <T> T execute(HttpHost target, HttpRequest request,
                        ResponseHandler<? extends T> responseHandler,
                        HttpContext context)
-      throws IOException {
+      throws IOException, UnknownHostException {
     return delegate.execute(target, request, responseHandler, context);
   }
 

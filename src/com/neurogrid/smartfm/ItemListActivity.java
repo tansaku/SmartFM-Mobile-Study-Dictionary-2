@@ -5,12 +5,13 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.ListActivity;
 import android.app.ProgressDialog;
 import android.content.Context;
 import android.content.DialogInterface;
-import android.content.Intent;
 import android.content.DialogInterface.OnCancelListener;
+import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.media.MediaPlayer;
@@ -19,22 +20,23 @@ import android.os.Bundle;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.View.OnClickListener;
+import android.view.ViewGroup;
 import android.widget.BaseAdapter;
 import android.widget.ImageView;
 import android.widget.ListView;
 import android.widget.TextView;
 
+import com.neurogrid.smartfm.results.CreateListResult;
 import com.nullwire.trace.ExceptionHandler;
 
-import fm.smart.Lookup;
+import fm.smart.Result;
 
 public class ItemListActivity extends ListActivity {
 
-	private static final int CREATE_ITEM_ID = Menu.FIRST;
-	private static final int LOAD_MORE = Menu.FIRST + 1;
+	private static final int LOAD_MORE = Menu.FIRST;
 
 	public static int number_results = 0;
 	public static int start_index = 0;
@@ -72,31 +74,34 @@ public class ItemListActivity extends ListActivity {
 			// them what we are doing.
 			// offer a dialogue?
 
-			// TODO remove for the moment
-			/*
-			 * AlertDialog dialog = new AlertDialog.Builder(this).create();
-			 * dialog.setTitle("Add new item?");
-			 * dialog.setMessage("No match - care to add a new item?");
-			 * dialog.setButton("OK", new DialogInterface.OnClickListener() {
-			 * public void onClick(DialogInterface dialog, int which) {
-			 * cue_language = Main.search_lang; response_language =
-			 * Main.result_lang; create_new_item(); } });
-			 * dialog.setButton2("Cancel", new DialogInterface.OnClickListener()
-			 * { public void onClick(DialogInterface dialog, int which) { Intent
-			 * intent = new Intent(Intent.ACTION_VIEW);
-			 * intent.setClassName(ItemListActivity.this, Main.class
-			 * .getName()); Utils.putExtra(intent, "query_string",
-			 * query_string); ItemListActivity.this.startActivity(intent); } });
-			 * dialog.show();
-			 */
+			AlertDialog dialog = new AlertDialog.Builder(this).create();
+			dialog.setTitle("Add new item?");
+			dialog.setMessage("No match - care to add a new item?");
+			dialog.setButton("OK", new DialogInterface.OnClickListener() {
+				public void onClick(DialogInterface dialog, int which) {
+					cue_language = Main.search_lang;
+					response_language = Main.result_lang;
+					create_new_item();
+				}
+			});
+			dialog.setButton2("Cancel", new DialogInterface.OnClickListener() {
+				public void onClick(DialogInterface dialog, int which) {
+					Intent intent = new Intent(Intent.ACTION_VIEW);
+					intent.setClassName(ItemListActivity.this,
+							Main.class.getName());
+					AndroidUtils.putExtra(intent, "query_string", query_string);
+					ItemListActivity.this.startActivity(intent);
+				}
+			});
+			dialog.show();
+
 		}
 	}
 
 	@Override
 	public boolean onCreateOptionsMenu(Menu menu) {
 		super.onCreateOptionsMenu(menu);
-		// menu.add(0, CREATE_ITEM_ID, 0, R.string.menu_create_item).setIcon(
-		// android.R.drawable.ic_menu_add);
+
 		if (items != null && items.length() > 0
 				&& number_results > items_per_page) {
 			menu.add(0, LOAD_MORE, 0, R.string.menu_load_more).setIcon(
@@ -106,13 +111,48 @@ public class ItemListActivity extends ListActivity {
 		return true;
 	}
 
-	/*
-	 * @Override public boolean onOptionsItemSelected(MenuItem item) { switch
-	 * (item.getItemId()) { case CREATE_ITEM_ID: { create_new_item(); break; }
-	 * case LOAD_MORE: { SmartFmMenus.loadItems(this, query_string, start_index
-	 * / items_per_page + 2); break; } } return
-	 * super.onOptionsItemSelected(item); }
-	 */
+	public static CreateListResult getDefaultStudyList(Activity activity) {
+		CreateListResult result = null;
+		try {
+			Result http_result = Main.lookup.userGoals(Main.transport,
+					LoginActivity.username(activity));
+			JSONObject items = new JSONObject(http_result.http_response);
+
+			// network time outs causing recreate here?
+			if (items == null || items.length() == 0) {
+				// create default list for user
+				result = LoginActivity
+						.createList(
+								LoginActivity.username(activity)
+										+ "'s first list",
+								"List created for "
+										+ LoginActivity.username(activity)
+										+ "by Google Android Application to store study items",
+								Main.search_lang, Main.result_lang, activity);
+				Main.default_study_goal_id = result.getHttpResponse();
+			} else {
+				Main.default_study_goal_id = items.getJSONArray("goals")
+						.getJSONObject(1).getString("id");
+			}
+
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		return result;
+	}
+
+	@Override
+	public boolean onOptionsItemSelected(MenuItem item) {
+		switch (item.getItemId()) {
+		case LOAD_MORE: {
+			SmartFmMenus.loadItems(this, query_string, start_index
+					/ items_per_page + 2);
+			break;
+		}
+		}
+		return super.onOptionsItemSelected(item);
+	}
+
 	// TODO best setup would be to allow user to add data locally
 	// have all data cached, and reflect changes locally, but then
 	// remind user that they need to login/signup to persist data on
@@ -125,22 +165,27 @@ public class ItemListActivity extends ListActivity {
 	// after you have created data, but at least then you have the user
 	// invested in the login/signup process, because they have something to
 	// lose if they don't login/signup ...
-	/*
-	 * private void create_new_item() { Intent intent = new
-	 * Intent(Intent.ACTION_VIEW); if (list_id == null) { list_id =
-	 * Main.default_study_list_id; }
-	 * 
-	 * intent.setClassName(this, CreateItemActivity.class.getName());
-	 * Utils.putExtra(intent, "list_id", list_id); Utils.putExtra(intent, "cue",
-	 * query_string.replaceAll("\\++", " "));
-	 * 
-	 * Utils.putExtra(intent, "cue_language", cue_language == null ?
-	 * Main.search_lang : cue_language); Utils.putExtra(intent,
-	 * "response_language", response_language == null ? Main.result_lang :
-	 * response_language);
-	 * 
-	 * startActivity(intent); }
-	 */
+
+	private void create_new_item() {
+		Intent intent = new Intent(Intent.ACTION_VIEW);
+		if (list_id == null) {
+			list_id = Main.default_study_goal_id;
+		}
+
+		intent.setClassName(this, CreateItemActivity.class.getName());
+		AndroidUtils.putExtra(intent, "list_id", list_id);
+		AndroidUtils.putExtra(intent, "cue",
+				query_string.replaceAll("\\++", " "));
+
+		AndroidUtils.putExtra(intent, "cue_language",
+				cue_language == null ? Main.search_lang : cue_language);
+		AndroidUtils.putExtra(intent, "response_language",
+				response_language == null ? Main.result_lang
+						: response_language);
+
+		startActivity(intent);
+	}
+
 	// so I think we need to have an item page that displays all extra info
 	// about item
 	// and that is where we could upload sentences with images etc.
@@ -176,11 +221,7 @@ public class ItemListActivity extends ListActivity {
 		myProgressDialog.setCancelable(true);
 
 		final ItemDownload item_download = new ItemDownload(activity,
-				myProgressDialog) {
-			public JSONObject downloadCall(Lookup lookup) {
-				return lookup.item(item_id);
-			}
-		};
+				myProgressDialog, item_id);
 		myProgressDialog.setButton("Cancel",
 				new DialogInterface.OnClickListener() {
 					public void onClick(DialogInterface dialog, int which) {
@@ -196,24 +237,10 @@ public class ItemListActivity extends ListActivity {
 		myProgressDialog.show();
 		item_download.start();
 	}
-	
 
-	private static void playSound(int position, Context context) {
-		String sound_url = null;
-		try {
-
-			// TODO recently I don't see any sound in the item lists - wonder if
-			// it has been removed?
-			sound_url = items.getJSONObject(position).getJSONObject("cue")
-					.getJSONObject("content").getString("sound");
-		} catch (Exception e) {
-			Log.d("ItemListActivity", "No sound for this item");
-			e.printStackTrace();
-			return;
-		}
-		// TODO removed for the moment
-		// Main.playSound(sound_url, ItemListActivity.mMediaPlayer, context);
-
+	private static void playSound(Context context, String sound_url) {
+		MediaUtility.playSound(sound_url, ItemListActivity.mMediaPlayer,
+				context);
 	}
 
 	public static class EfficientAdapter extends BaseAdapter {
@@ -232,8 +259,8 @@ public class ItemListActivity extends ListActivity {
 			// Icons bound to the rows.
 			play_sound = BitmapFactory.decodeResource(context.getResources(),
 					R.drawable.active_sound);
-			play_sound_disabled = BitmapFactory.decodeResource(context
-					.getResources(), R.drawable.inactive_sound);
+			play_sound_disabled = BitmapFactory.decodeResource(
+					context.getResources(), R.drawable.inactive_sound);
 		}
 
 		/**
@@ -308,13 +335,15 @@ public class ItemListActivity extends ListActivity {
 			String cue_text = "";
 			String cue_type;
 			String character = "";
+			String id = "";
 			JSONObject cue;
 			JSONObject content;
 			try {
+				id = items.getJSONObject(position).getString("id");
 				cue = items.getJSONObject(position).getJSONObject("cue");
 				content = cue.getJSONObject("content");
 				cue_text = content.getString("text");
-				//cue_text += items.getJSONObject(position).getString("id");
+				// cue_text += items.getJSONObject(position).getString("id");
 				if (content.has("character")) {
 					character = content.getString("character");
 					if (!character.equals("")) {
@@ -329,21 +358,22 @@ public class ItemListActivity extends ListActivity {
 			}
 			String response = "";
 			try {
-				response = items.getJSONObject(position).getJSONObject(
-						"response").getJSONObject("content").getString("text");
+				response = items.getJSONObject(position)
+						.getJSONObject("response").getJSONObject("content")
+						.getString("text");
 
 			} catch (Exception e) {
 				response = "error";
 			}
 			int no_of_examples = 0;
 			try {
-				no_of_examples = items.getJSONObject(position).getJSONObject(
-						"cue").getJSONObject("related").getJSONArray(
-						"sentences").length();
+				no_of_examples = items.getJSONObject(position)
+						.getJSONObject("cue").getJSONObject("related")
+						.getJSONArray("sentences").length();
 
 			} catch (Exception e) {
-				Log.d("SMART-FM", "Trying to get number of sentences: "
-						+ e.getMessage());
+				Log.d("SMART-FM",
+						"Trying to get number of sentences: " + e.getMessage());
 			}
 			holder.text.setText(cue_text + " - " + response + " ("
 					+ no_of_examples + " example"
@@ -351,8 +381,18 @@ public class ItemListActivity extends ListActivity {
 
 			String sound_url = null;
 			try {
-				sound_url = items.getJSONObject(position).getJSONObject("cue")
-						.getJSONObject("content").getString("sound");
+				// gets sounds, but performance issue TODO
+				// 1: could just cache result to avoid repeat downloads (or is layout already being cached?)
+				// 2: add AsyncTasks (has its own queue)
+				// 2a: AsynTasks should populate some cache that is then referenced here 
+                // so check cache, then create task and force update when task finished
+				// notifyDataSetChanged can be called on BaseAdapter
+				Result result = Main.lookup.itemSounds(Main.transport, id);
+				JSONObject sound = new JSONObject(result.http_response);
+				if (sound.getJSONArray("sounds").length() > 0) {
+					sound_url = sound.getJSONArray("sounds").getJSONObject(0)
+							.getString("url");
+				}
 			} catch (Exception e) {
 				Log.d("ItemListActivity", "No sound for this item");
 				// e.printStackTrace();
@@ -360,9 +400,10 @@ public class ItemListActivity extends ListActivity {
 
 			if (sound_url != null && !sound_url.equals("")) {
 				holder.icon.setImageBitmap(play_sound);
+				final String url = sound_url;
 				OnClickListener listener = new OnClickListener() {
 					public void onClick(View v) {
-						playSound(position, context);
+						playSound(context, url);
 					}
 				};
 				holder.icon.setOnClickListener(listener);
