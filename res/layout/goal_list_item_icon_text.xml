@@ -12,14 +12,8 @@
 	android:orientation="horizontal" android:layout_width="fill_parent"
 	android:layout_height="48dip" android:minHeight="48dip">
 
-	<ProgressBar android:id="@+id/progress"
-		android:layout_height="48dip" android:layout_width="48dip"
-		android:layout_gravity="center_vertical|center_horizontal|center"
-		android:padding="8dip"></ProgressBar>
-
 	<ImageView android:id="@+id/icon" android:layout_width="48dip"
-		android:layout_height="48dip" android:src="@drawable/default_goal_icon"
-		android:visibility="gone" />
+		android:layout_height="48dip" android:src="@drawable/default_goal_icon"/>
 
 	<TextView android:id="@+id/text" android:layout_gravity="center_vertical"
 		android:layout_width="0dip" android:layout_weight="1.0"

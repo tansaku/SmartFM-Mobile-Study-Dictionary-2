@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 	<string name="hello"></string>
-	<string name="app_name">Smart.fm Study Dictionary 2.0</string>
+	<string name="app_name">Smart.fm Study Dictionary 1.1</string>
 
 	<string name="button_cancel">Cancel</string>
 	<string name="button_ok">OK</string>

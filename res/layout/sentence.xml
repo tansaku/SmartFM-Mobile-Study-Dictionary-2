@@ -40,12 +40,17 @@
 				android:layout_alignWithParentIfMissing="true" android:gravity="center_vertical" />
 		</RelativeLayout>
 		<!-- would be nice if we could get image to span two rows ... -->
+		<ProgressBar android:id="@+id/progress"
+			android:layout_height="150dip" android:layout_width="150dip"
+			android:layout_gravity="center_vertical|center_horizontal|center"
+			android:padding="51dip" android:maxHeight="150dip" android:maxWidth="150dip"
+			android:minHeight="150dip" android:minWidth="150dip"></ProgressBar>
 		<ImageView android:id="@+id/sentence_image" android:src="@drawable/camera"
 			android:adjustViewBounds="true" android:maxWidth="150dip"
 			android:maxHeight="150dip" android:layout_width="wrap_content"
 			android:layout_height="wrap_content" android:padding="10dip"
 			android:layout_alignWithParentIfMissing="true"
 			android:layout_gravity="top|right" android:minHeight="150dip"
-			android:minWidth="150dip" />
+			android:minWidth="150dip" android:visibility="gone" />
 	</TableRow>
 </TableLayout>
